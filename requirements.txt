@@ -4,3 +4,4 @@ plotly
 gpxpy
 geopy
 numpy
+matplotlib
