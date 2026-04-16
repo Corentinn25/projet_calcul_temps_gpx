@@ -2,3 +2,5 @@ streamlit
 pandas
 plotly
 gpxpy
+geopy
+numpy
