@@ -4,8 +4,17 @@ import plotly.express as px
 from src.parser import parse_gpx
 from src.segmenter import compute_segments
 from src.calculateur import estimer_temps_utmb
+import math
 
 # --- CONFIGURATION & STYLE ---
+
+# Initialisation des variables de contrôle
+if 'cote_utmb' not in st.session_state:
+    st.session_state.cote_utmb = 500
+if 'target_temps' not in st.session_state:
+    st.session_state.target_temps = 5.0 # Valeur par défaut arbitraire
+
+
 st.set_page_config(page_title="Trail Splitter Pro", layout="wide", page_icon="🏃")
 
 # Correction de l'argument unsafe_allow_html
@@ -19,6 +28,33 @@ st.markdown("""
 st.title("🏃 Trail Splitter : Planificateur de Course")
 
 # --- BARRE LATÉRALE ---
+
+# --- FONCTIONS DE SYNCHRONISATION ---
+
+
+def update_by_cote():
+    pass
+
+def update_by_temps(dist, dplus, dmoins):
+    t_min = st.session_state.target_temps * 60
+    km_e = dist + (dplus / 100) + (dmoins / 200)
+    
+    if t_min > 0:
+        f_fatigue = math.exp(0.029 * math.pow(km_e - 15, 1.545)) if km_e > 15 else 1.0
+        # On protège le calcul pour ne pas avoir une cote infinie
+        new_cote = (km_e * 60 * 1000 * f_fatigue) / (31.5 * t_min)
+        # On verrouille entre 200 et 1000
+        st.session_state.cote_utmb = float(max(min(new_cote, 1000.0), 200.0))
+
+def update_by_allure(dist, dplus, dmoins):
+    # Sécurité pour éviter allure = 0
+    safe_allure = max(st.session_state.target_allure, 3.0)
+    t_min = safe_allure * dist
+    st.session_state.target_temps = float(t_min / 60)
+    update_by_temps(dist, dplus, dmoins)
+
+
+
 st.sidebar.header("📁 Données")
 uploaded_file = st.sidebar.file_uploader("Fichier GPX", type=['gpx'])
 
@@ -34,20 +70,43 @@ if uploaded_file is not None:
     km_e_total = total_dist + (total_dplus / 100) + (total_dmoins / 200)
     df['dplus_cum'] = df['ele_diff'].clip(lower=0).cumsum()
 
+
+
     # 2. Réglages utilisateur
-    st.sidebar.divider()
+    st.sidebar.subheader("🎯 Objectif de course")
     seuil_segment = st.sidebar.slider("Sensibilité du relief (m)", 30, 200, 55)
     tolerance = st.sidebar.slider("Lissage terrain (m)", 10, 100, 40)
-    cote_utmb = st.sidebar.number_input("Ta Cote UTMB", 200, 1000, 612)
 
-    # 3. Métriques de performance (Utilisation du nouveau calculateur)
-    t_min_total = estimer_temps_utmb(total_dist, total_dplus, total_dmoins, cote_utmb)
-    v_km_e_h = (km_e_total / t_min_total) * 60
-    vap_decimal = 60 / v_km_e_h
+    # --- CALCULS SÉCURISÉS ---
+    # On s'assure que la cote en mémoire est valide
+    safe_cote = max(st.session_state.cote_utmb, 600)
     
-    col1, col2 = st.sidebar.columns(2)
-    col1.metric("Vitesse (km-e/h)", f"{v_km_e_h:.2f}")
-    col2.metric("VAP (min/km)", f"{int(vap_decimal)}:{int((vap_decimal%1)*60):02d}")
+    # Calcul du temps initial
+    t_estime_h = estimer_temps_utmb(total_dist, total_dplus, total_dmoins, safe_cote) / 60
+    
+    # GARDE-FOU ANTI-EXPLOSION (Image 17) : On limite le temps entre 30min et 200h
+    t_estime_h = max(min(t_estime_h, 200), 0.5)
+    
+    # Calcul de l'allure initiale
+    allure_estimee = (t_estime_h * 60) / total_dist if total_dist > 0 else 10.0
+    allure_estimee = max(min(allure_estimee, 100.0), 3.0)
+
+    # --- AFFICHAGE DES WIDGETS ---
+    
+    # 1. Côte
+    st.sidebar.number_input("Ta Côte UTMB", 200.0, 1000.0, 
+                            key="cote_utmb", on_change=update_by_cote)
+
+    # 2. Temps visé
+    st.sidebar.number_input("Temps visé (heures)", 0.5, 200.0, value=float(t_estime_h), step=0.5,
+                            key="target_temps", on_change=update_by_temps, 
+                            args=(total_dist, total_dplus, total_dmoins))
+
+    # 3. Allure moyenne
+    st.sidebar.number_input("Allure moyenne (min/km)", 3.0, 100.0, value=float(allure_estimee), step=0.1,
+                            key="target_allure", on_change=update_by_allure, 
+                            args=(total_dist, total_dplus, total_dmoins))
+
 
     # 4. Segmentation du parcours
     df_segments = compute_segments(df, threshold=seuil_segment, tolerance=tolerance)
@@ -98,28 +157,48 @@ if uploaded_file is not None:
     # 6. Tableau de marche (Roadbook)
     st.divider()
     if not df_segments.empty:
-        # Application du nouveau calculateur sur chaque ligne
+        # Utilisation de st.session_state.cote_utmb pour éviter le NameError
         df_segments['Minutes'] = df_segments.apply(
-            lambda x: estimer_temps_utmb(x['Distance (km)'], x['D+ (m)'], x['D- (m)'], cote_utmb), 
+            lambda x: estimer_temps_utmb(
+                x['Distance (km)'], 
+                x['D+ (m)'], 
+                x['D- (m)'], 
+                st.session_state.cote_utmb  # Correction ici : on pioche dans le state
+            ), 
             axis=1
         )
+        
         df_segments['Temps Cumulé'] = df_segments['Minutes'].cumsum()
         
         def format_pace(row):
+            # Sécurité pour éviter la division par zéro si une section est ultra courte
+            if row['Distance (km)'] <= 0: return "00:00"
             p = row['Minutes'] / row['Distance (km)']
             return f"{int(p):02d}:{int((p%1)*60):02d}"
 
         df_segments['Allure (min/km)'] = df_segments.apply(format_pace, axis=1)
+        
         fmt_t = lambda m: f"{int(m//60)}h{int(m%60):02d}"
         df_segments['Chrono'] = df_segments['Minutes'].apply(fmt_t)
         df_segments['Passage'] = df_segments['Temps Cumulé'].apply(fmt_t)
 
+        # Affichage du tableau final
         st.dataframe(
             df_segments[['Section', 'Distance (km)', 'Cumul (km)', 'D+ (m)', 'D- (m)', 'Pente moy (%)', 'Allure (min/km)', 'Chrono', 'Passage']]
             .style.background_gradient(subset=['Pente moy (%)'], cmap='RdYlGn_r', vmin=-15, vmax=15)
-            .format({"Distance (km)": "{:.1f}", "Cumul (km)": "{:.1f}", "D+ (m)": "{:.0f}", "D- (m)": "{:.0f}", "Pente moy (%)": "{:.1f}"}),
-            use_container_width=True, hide_index=True
+            .format({
+                "Distance (km)": "{:.1f}", 
+                "Cumul (km)": "{:.1f}", 
+                "D+ (m)": "{:.0f}", 
+                "D- (m)": "{:.0f}", 
+                "Pente moy (%)": "{:.1f}"
+            }),
+            use_container_width=True, 
+            hide_index=True
         )
+        
         st.success(f"### **🏁 Objectif de temps total : {fmt_t(df_segments['Minutes'].sum())}**")
+
 else:
+    # Ce message s'affiche tant qu'aucun fichier n'est sélectionné
     st.info("👈 Charge ton fichier GPX pour commencer la planification.")
