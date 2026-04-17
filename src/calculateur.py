@@ -1,22 +1,38 @@
 import math
 
-def estimer_temps_itra(distance, dplus, cote_itra):
+def estimer_temps_itra(distance, dplus, dmoins, cote_itra):
     """
-    Modèle TRAIL STANDARD - Base 28.5.
-    Calibrage équilibré pour la majorité des terrains de trail.
+    Calcule le temps de passage en s'inspirant de la logique ITRA :
+    - Utilise le D+ et le D-
+    - Applique une dérive d'endurance logarithmique
     """
-    if distance <= 0 or cote_itra <= 0:
-        return 0
+    # 1. Calcul de la Distance-Effort (Logique ITRA complète)
+    # L'ITRA considère que 100m D+ = 1km et 200m D- = 1km
+    km_e = distance + (dplus / 100) + (dmoins / 200)
     
-    # 1. Calcul du Kilomètre-Effort (100m D+ = 1km plat)
-    km_effort = distance + (dplus / 100)
+    # 2. Facteur de Fatigue (Pénalité d'Endurance)
+    # On définit une base de vitesse "vitesse record" (Vref) pour une cote 1000.
+    # On ajuste cette vitesse selon la longueur de la course (km_e).
+    # Plus c'est long, plus la vitesse de référence diminue.
     
-    # 2. Courbe de vitesse avec base 28.5
-    # Décroissance de 1.70 pour simuler la gestion de l'effort sur la durée
-    base_vitesse_ref = 28.5 - (1.70 * math.log(km_effort + 1))
+    # Constantes d'ajustement empiriques pour coller aux tables ITRA
+    vitesse_base_1000 = 29.5  # km-e/h (proche du record marathon mis à plat)
     
-    # 3. Vitesse finale en km-effort/h
-    v_km_e_h = (cote_itra / 1000) * base_vitesse_ref
+    # Dérive : on perd en efficacité au fur et à mesure que les km-e s'accumulent
+    # On utilise une puissance pour simuler l'épuisement des réserves
+    if km_e > 10:
+        # Facteur qui réduit la vitesse de référence quand la distance augmente
+        # Puissance 0.07 : dérive modérée (trail court)
+        # Puissance 0.11 : dérive forte (ultra trail)
+        facteur_fatigue = math.pow(km_e / 10, 0.09)
+    else:
+        facteur_fatigue = 1.0
+        
+    # Vitesse cible ajustée à la cote du coureur
+    # Une cote 600 court à 60% de la vitesse de référence
+    vitesse_coureur = (vitesse_base_1000 / facteur_fatigue) * (cote_itra / 1000)
     
-    # 4. Temps en minutes
-    return (km_effort / v_km_e_h) * 60
+    # 3. Calcul du temps en minutes
+    temps_minutes = (km_e / vitesse_coureur) * 60
+    
+    return temps_minutes
