@@ -36,21 +36,49 @@ if uploaded_file is not None:
 
     # 2. Réglages utilisateur
     st.sidebar.divider()
-    seuil_segment = st.sidebar.slider("Sensibilité du relief (m)", 30, 200, 55)
-    tolerance = st.sidebar.slider("Lissage terrain (m)", 10, 100, 40)
-    cote_utmb = st.sidebar.number_input("Ta Cote UTMB", 200, 999, 600)
+    seuil_segment = st.sidebar.slider("Sensibilité du relief (m)", 30, 200, 50)
+    tolerance = st.sidebar.slider("Lissage terrain (m)", 10, 100, 50)
+    cote_utmb = st.sidebar.number_input("Ta Cote UTMB", 300, 999, 600)
 
-    # 3. Métriques de performance (Utilisation du nouveau calculateur)
-    t_min_total = estimer_temps_utmb(total_dist, total_dplus, total_dmoins, cote_utmb)
-    v_km_e_h = (km_e_total / t_min_total) * 60
-    vap_decimal = 60 / v_km_e_h
-    
-    col1, col2 = st.sidebar.columns(2)
-    col1.metric("Vitesse (km-e/h)", f"{v_km_e_h:.2f}")
-    col2.metric("VAP (min/km)", f"{int(vap_decimal)}:{int((vap_decimal%1)*60):02d}")
 
-    # 4. Segmentation du parcours
+
+
+
+   # --- 4. Segmentation & Calcul des temps ---
     df_segments = compute_segments(df, threshold=seuil_segment, tolerance=tolerance)
+    
+    if not df_segments.empty:
+        # Calcul du temps segment par segment (pour éviter l'explosion du facteur fatigue)
+        df_segments['Minutes'] = df_segments.apply(
+            lambda x: estimer_temps_utmb(x['Distance (km)'], x['D+ (m)'], x['D- (m)'], cote_utmb), 
+            axis=1
+        )
+        t_min_total = df_segments['Minutes'].sum()
+    else:
+        t_min_total = estimer_temps_utmb(total_dist, total_dplus, total_dmoins, cote_utmb)
+
+    # --- 3. Métriques de performance (Sidebar) ---
+    allure_reelle_dec = t_min_total / total_dist
+    allure_effort_dec = t_min_total / km_e_total
+    
+    def fmt_ms(m): return f"{int(m)}:{int((m%1)*60):02d}"
+    def fmt_hms(m): return f"{int(m//60)}h{int(m%60):02d}"
+
+    st.sidebar.markdown("### 📊 Analyse de la course")
+    
+    # Affichage des textes demandés
+    st.sidebar.write(f"**Temps estimé :** {fmt_hms(t_min_total)}")
+    st.sidebar.write(f"**Allure :** {fmt_ms(allure_reelle_dec)} min/km")
+    st.sidebar.write(f"**Allure km effort :** {fmt_ms(allure_effort_dec)} min/km*")
+    
+    # L'astérisque avec le détail du calcul
+    st.sidebar.caption(f"*Le kilomètre-effort (km-e) simule la difficulté du dénivelé. "
+                       f"Calcul pour ce GPX : {total_dist:.1f}km + {total_dplus:.0f}m D+/100 + {total_dmoins:.0f}m D-/200 "
+                       f"= **{km_e_total:.2f} km-e**.")
+
+
+
+
 
     # 5. Graphique Altitométrique
     st.subheader(f"Profil Altitométrique : {total_dist:.1f}km | {total_dplus:.0f}m D+ | {total_dmoins:.0f}m D-")
