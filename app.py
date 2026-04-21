@@ -38,7 +38,7 @@ if uploaded_file is not None:
     st.sidebar.divider()
     seuil_segment = st.sidebar.slider("Sensibilité du relief (m)", 30, 200, 55)
     tolerance = st.sidebar.slider("Lissage terrain (m)", 10, 100, 40)
-    cote_utmb = st.sidebar.number_input("Ta Cote UTMB", 200, 1000, 612)
+    cote_utmb = st.sidebar.number_input("Ta Cote UTMB", 200, 999, 600)
 
     # 3. Métriques de performance (Utilisation du nouveau calculateur)
     t_min_total = estimer_temps_utmb(total_dist, total_dplus, total_dmoins, cote_utmb)
