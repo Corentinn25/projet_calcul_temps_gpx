@@ -34,6 +34,14 @@ if uploaded_file is not None:
     km_e_total = total_dist + (total_dplus / 100) + (total_dmoins / 200)
     df['dplus_cum'] = df['ele_diff'].clip(lower=0).cumsum()
 
+    # Pourcentage pente
+    df['dplus_cum'] = df['ele_diff'].clip(lower=0).cumsum()
+    # Pente % = (différence altitude / différence distance) * 100
+    # On évite la division par zéro avec fillna
+    dist_diff = df['dist_cum'].diff().fillna(0)
+    df['pente'] = (df['ele_diff'] / (dist_diff * 1000)) * 100 
+    df['pente'] = df['pente'].fillna(0).replace([float('inf'), float('-inf')], 0)
+
     # 2. Réglages utilisateur
     st.sidebar.divider()
     seuil_segment = st.sidebar.slider("Sensibilité du relief (m)", 30, 200, 50)
@@ -44,7 +52,7 @@ if uploaded_file is not None:
 
 
 
-   # --- 4. Segmentation & Calcul des temps ---
+   # 3. Segmentation & Calcul des temps
     df_segments = compute_segments(df, threshold=seuil_segment, tolerance=tolerance)
     
     if not df_segments.empty:
@@ -80,11 +88,11 @@ if uploaded_file is not None:
 
 
 
-    # 5. Graphique Altitométrique
+    # 4. Graphique Altitométrique
     st.subheader(f"Profil Altitométrique : {total_dist:.1f}km | {total_dplus:.0f}m D+ | {total_dmoins:.0f}m D-")
     
     fig = px.area(df, x='dist_cum', y='ele', color_discrete_sequence=['#2ecc71'], 
-                  custom_data=['dist_cum', 'ele', 'dplus_cum'])
+                  custom_data=['dist_cum', 'ele', 'dplus_cum', 'pente'])
 
     if not df_segments.empty:
         for i, row in df_segments.iterrows():
@@ -113,8 +121,14 @@ if uploaded_file is not None:
                 bgcolor="rgba(0,0,0,0.5)",
                 borderpad=2
             )
+    
+    fig.update_traces(
+        hovertemplate="<b>Dist :</b> %{customdata[0]:.2f}km<br>" +
+                      "<b>Alt :</b> %{customdata[1]:.0f}m<br>" +
+                      "<b>Pente :</b> %{customdata[3]:.1f}%<br>" + # <-- La nouvelle ligne
+                      "<b>D+ cum :</b> %{customdata[2]:.0f}m<extra></extra>"
+    )
 
-    fig.update_traces(hovertemplate="<b>Dist :</b> %{customdata[0]:.2f}km<br><b>Alt :</b> %{customdata[1]:.0f}m<br><b>D+ cum :</b> %{customdata[2]:.0f}m<extra></extra>")
     fig.update_layout(
         height=500, 
         margin=dict(l=0, r=0, t=50, b=0), 
@@ -123,7 +137,9 @@ if uploaded_file is not None:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # 6. Tableau de marche (Roadbook)
+
+
+    # 5. Tableau de marche (Roadbook)
     st.divider()
     if not df_segments.empty:
         # Application du nouveau calculateur sur chaque ligne
