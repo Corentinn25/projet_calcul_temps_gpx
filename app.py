@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 from src.parser import parse_gpx
 from src.segmenter import compute_segments
-from src.calculateur import estimer_temps_utmb
+from src.calculateur import estimer_temps_utmb_2_0
 
 # --- CONFIGURATION & STYLE ---
 st.set_page_config(page_title="Trail Splitter Pro", layout="wide", page_icon="🏃")
@@ -58,12 +58,12 @@ if uploaded_file is not None:
     if not df_segments.empty:
         # Calcul du temps segment par segment (pour éviter l'explosion du facteur fatigue)
         df_segments['Minutes'] = df_segments.apply(
-            lambda x: estimer_temps_utmb(x['Distance (km)'], x['D+ (m)'], x['D- (m)'], cote_utmb), 
+            lambda x: estimer_temps_utmb_2_0(x['Distance (km)'], x['D+ (m)'], x['D- (m)'], cote_utmb), 
             axis=1
         )
         t_min_total = df_segments['Minutes'].sum()
     else:
-        t_min_total = estimer_temps_utmb(total_dist, total_dplus, total_dmoins, cote_utmb)
+        t_min_total = estimer_temps_utmb_2_0(total_dist, total_dplus, total_dmoins, cote_utmb)
 
     # --- 3. Métriques de performance (Sidebar) ---
     allure_reelle_dec = t_min_total / total_dist
@@ -144,7 +144,7 @@ if uploaded_file is not None:
     if not df_segments.empty:
         # Application du nouveau calculateur sur chaque ligne
         df_segments['Minutes'] = df_segments.apply(
-            lambda x: estimer_temps_utmb(x['Distance (km)'], x['D+ (m)'], x['D- (m)'], cote_utmb), 
+            lambda x: estimer_temps_utmb_2_0(x['Distance (km)'], x['D+ (m)'], x['D- (m)'], cote_utmb), 
             axis=1
         )
         df_segments['Temps Cumulé'] = df_segments['Minutes'].cumsum()
